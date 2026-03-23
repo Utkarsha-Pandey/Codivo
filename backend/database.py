@@ -9,5 +9,8 @@ load_dotenv()
 url: str = os.getenv("SUPABASE_URL")
 key: str = os.getenv("SUPABASE_KEY")
 
+#Singleton pattern for database client
+db = create_client(url, key)
+
 def get_db() -> Client:
-    return create_client(url, key)
+    return db

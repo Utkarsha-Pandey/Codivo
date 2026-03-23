@@ -4,6 +4,7 @@ from database import get_db
 from models import UserCredentials
 from supabase import Client
 from ai_agent import get_ai_response
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="AI Interviewer API")
 
@@ -44,6 +45,14 @@ def ask_ai(question: str):
         "your_question": question, 
         "ai_answer": answer
     }
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # In production, we restrict this to your extension's ID
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
