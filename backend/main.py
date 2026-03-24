@@ -5,6 +5,7 @@ from models import UserCredentials
 from supabase import Client
 from ai_agent import get_ai_response
 from fastapi.middleware.cors import CORSMiddleware
+from models import UserCredentials, ProblemContext
 
 app = FastAPI(title="AI Interviewer API")
 
@@ -43,6 +44,16 @@ def ask_ai(question: str):
 
     return {
         "your_question": question, 
+        "ai_answer": answer
+    }
+
+@app.post("/start-interview")
+def start_interview(problem: ProblemContext):
+    # Convert the Pydantic blueprint into a standard dictionary for the agent
+    answer = get_ai_response(problem.model_dump())
+    
+    return {
+        "status": "success",
         "ai_answer": answer
     }
 

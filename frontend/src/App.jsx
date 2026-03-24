@@ -19,19 +19,19 @@ function App() {
       
       // 3. Send a message to content.js asking for the text
       chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
-        if (response && response.text) {
-          setStatus("Sending problem to AI...");
+        if (response && response.data) {
+          setStatus(`Sending "${response.data.title}" to AI...`);
           
           try {
-            // 4. Send the text to FastAPI -> Groq
-            const answer = await startInterview(response.text);
+            // 4. Send the JSON object to FastAPI
+            const answer = await startInterview(response.data);
             setAiResponse(answer);
             setStatus("Interview Started!");
           } catch (error) {
             setStatus("Error connecting to backend.");
           }
         } else {
-          setStatus("Could not read page.");
+          setStatus("Could not read page structure.");
         }
       });
     });

@@ -24,7 +24,17 @@ def get_interviewer_chain():
 
     return interviewer_prompt | ai_brain
 
-def get_ai_response(user_question: str) -> str:
+def get_ai_response(problem_data: dict) -> str:
     chain = get_interviewer_chain()
-    response = chain.invoke({"question": user_question})
+    
+    # format the structured data into a clean prompt for the AI
+    formatted_prompt = (
+        f"I am ready to start my mock interview. Here is the problem context:\n"
+        f"Title: {problem_data['title']}\n"
+        f"Description: {problem_data['description']}\n"
+        f"Constraints: {problem_data['constraints']}\n"
+        f"Please ask me your first question to begin the interview."
+    )
+    
+    response = chain.invoke({"question": formatted_prompt})
     return response.content
