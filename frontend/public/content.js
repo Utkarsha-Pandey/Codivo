@@ -36,9 +36,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             // 4. Package it into a clean JSON object
             const structuredData = {
                 title: title,
-                description: description.substring(0, 1000), // Safety limit
-                examples: examples.substring(0, 1000),
-                constraints: constraints.substring(0, 500)
+                description: description.substring, 
+                examples: examples.substring,
+                constraints: constraints.substring
             };
 
             // Send the JSON back to React
