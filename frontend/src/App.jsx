@@ -6,7 +6,8 @@ function App() {
   const [aiResponse, setAiResponse] = useState("");
 
   const handleStartInterview = async () => {
-    setStatus("Scanning page...");
+    setStatus("Scanning problem...");
+    setAiResponse(""); // Clear previous answers
     
     // 1. Ask Chrome which tab we are currently looking at
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -17,8 +18,15 @@ function App() {
       files: ['content.js']
     }, () => {
       
-      // 3. Send a message to content.js asking for the text
+      // 3. Send a message to content.js asking for the data
       chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
+        
+        // Handle explicit errors returned from our new content.js
+        if (response && response.error) {
+          setStatus(`Error: ${response.error}`);
+          return;
+        }
+
         if (response && response.data) {
           setStatus(`Sending "${response.data.title}" to AI...`);
           
@@ -28,10 +36,11 @@ function App() {
             setAiResponse(answer);
             setStatus("Interview Started!");
           } catch (error) {
+            console.error(error);
             setStatus("Error connecting to backend.");
           }
         } else {
-          setStatus("Could not read page structure.");
+          setStatus("Could not fetch problem data.");
         }
       });
     });
@@ -50,9 +59,9 @@ function App() {
       <p><strong>Status:</strong> {status}</p>
       
       {aiResponse && (
-        <div style={{ marginTop: '15px', padding: '10px', background: '#f4f4f4', borderRadius: '5px', maxHeight: '200px', overflowY: 'auto' }}>
-          <strong>AI Says:</strong>
-          <p>{aiResponse}</p>
+        <div style={{ marginTop: '15px', padding: '10px', background: '#f4f4f4', borderRadius: '5px', maxHeight: '300px', overflowY: 'auto' }}>
+          <strong>Interviewer Says:</strong>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{aiResponse}</p>
         </div>
       )}
     </div>

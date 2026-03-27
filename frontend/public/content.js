@@ -1,52 +1,70 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "READ_PAGE") {
-        try {
-            // 1. Grab the Title (LeetCode almost always puts this in an <h1>)
-            const titleEl = document.querySelector('h1');
-            const title = titleEl ? titleEl.innerText : "Unknown Problem";
-
-            // 2. Grab the main text area (ignoring sidebars and footers)
-            // We look for the common container, or fallback to the whole body
-            const mainContent = document.querySelector('[data-track-load="description_content"]') 
-                                || document.body;
-            const rawText = mainContent.innerText;
-
-            // 3. Parse the structured data using LeetCode's standard formatting
-            let description = rawText;
-            let examples = "None found.";
-            let constraints = "None found.";
-
-            if (rawText.includes("Example 1:")) {
-                const parts = rawText.split("Example 1:");
-                // Everything before Example 1 is the description
-                description = parts[0].replace(title, "").trim(); 
-                
-                const remainingText = parts[1];
-                if (remainingText.includes("Constraints:")) {
-                    const subParts = remainingText.split("Constraints:");
-                    // Everything between Example 1 and Constraints
-                    examples = "Example 1:" + subParts[0].trim();
-                    // Everything after Constraints
-                    constraints = subParts[1].trim();
-                } else {
-                    examples = "Example 1:" + remainingText.trim();
-                }
-            }
-
-            // 4. Package it into a clean JSON object
-            const structuredData = {
-                title: title,
-                description: description.substring, 
-                examples: examples.substring,
-                constraints: constraints.substring
-            };
-
-            // Send the JSON back to React
-            sendResponse({ data: structuredData });
-        } catch (error) {
-            console.error("Scraping failed:", error);
-            sendResponse({ error: "Failed to parse page." });
+        
+        // 1. Extract the problem slug from the LeetCode URL
+        // Example URL: https://leetcode.com/problems/two-sum/description/
+        const urlParts = window.location.pathname.split('/');
+        const problemIndex = urlParts.indexOf('problems');
+        
+        if (problemIndex === -1 || !urlParts[problemIndex + 1]) {
+            sendResponse({ error: "Not a valid LeetCode problem page." });
+            return true;
         }
+
+        const titleSlug = urlParts[problemIndex + 1]; // e.g., "two-sum"
+
+        // 2. Define the exact GraphQL query LeetCode uses to fetch problem details
+        const query = `
+            query questionData($titleSlug: String!) {
+              question(titleSlug: $titleSlug) {
+                title
+                content
+              }
+            }
+        `;
+
+        // 3. Make the fetch request directly to LeetCode's GraphQL endpoint
+        fetch('https://leetcode.com/graphql', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                operationName: "questionData",
+                variables: { titleSlug: titleSlug },
+                query: query
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.data && data.data.question) {
+                const question = data.data.question;
+                
+                // LeetCode returns the content as a single block of raw HTML string.
+                // We can strip the HTML tags to send clean text to your AI.
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = question.content;
+                const cleanText = tempDiv.innerText || tempDiv.textContent || "";
+
+                // Send the perfectly formatted data back to App.jsx
+                sendResponse({
+                    data: {
+                        title: question.title,
+                        description: cleanText.substring(0, 1000), // AI context limit safety
+                        examples: "Included in description.", // LeetCode bundles examples in the content
+                        constraints: "Included in description." // LeetCode bundles constraints in the content
+                    }
+                });
+            } else {
+                throw new Error("Invalid GraphQL response");
+            }
+        })
+        .catch(error => {
+            console.error("GraphQL Fetch failed:", error);
+            sendResponse({ error: "Failed to fetch problem data from API." });
+        });
+
+        // Return true to indicate we will send the response asynchronously
+        return true; 
     }
-    return true; 
 });
