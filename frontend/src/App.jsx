@@ -6,34 +6,48 @@ function App() {
   const [aiResponse, setAiResponse] = useState("");
 
   const handleStartInterview = async () => {
-    setStatus("Scanning page...");
+    setStatus("Scanning problem...");
+    setAiResponse(""); 
     
-    // 1. Ask Chrome which tab we are currently looking at
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // 2. Inject our content.js reader into that tab
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['content.js']
     }, () => {
       
-      // 3. Send a message to content.js asking for the text
-      chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
-        if (response && response.data) {
-          setStatus(`Sending "${response.data.title}" to AI...`);
+      // The 200ms delay to prevent the race condition
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
           
-          try {
-            // 4. Send the JSON object to FastAPI
-            const answer = await startInterview(response.data);
-            setAiResponse(answer);
-            setStatus("Interview Started!");
-          } catch (error) {
-            setStatus("Error connecting to backend.");
+          if (chrome.runtime.lastError) {
+             console.error("Chrome Runtime Error:", chrome.runtime.lastError.message);
+             setStatus("Error: Could not connect to the page. Try refreshing.");
+             return;
           }
-        } else {
-          setStatus("Could not read page structure.");
-        }
-      });
+
+          if (response && response.error) {
+            setStatus(`Error: ${response.error}`);
+            return;
+          }
+
+          if (response && response.data) {
+            setStatus(`Sending "${response.data.title}" to AI...`);
+            
+            try {
+              const answer = await startInterview(response.data);
+              setAiResponse(answer);
+              setStatus("Interview Started!");
+            } catch (error) {
+              console.error(error);
+              setStatus("Error connecting to backend.");
+            }
+          } else {
+            setStatus("Could not fetch problem data.");
+          }
+        });
+      }, 200); 
+      
     });
   };
 
@@ -50,13 +64,14 @@ function App() {
       <p><strong>Status:</strong> {status}</p>
       
       {aiResponse && (
-        <div style={{ marginTop: '15px', padding: '10px', background: '#f4f4f4', borderRadius: '5px', maxHeight: '200px', overflowY: 'auto' }}>
-          <strong>AI Says:</strong>
-          <p>{aiResponse}</p>
+        <div style={{ marginTop: '15px', padding: '10px', background: '#f4f4f4', borderRadius: '5px', maxHeight: '300px', overflowY: 'auto' }}>
+          <strong>Interviewer Says:</strong>
+          <p style={{ whiteSpace: 'pre-wrap' }}>{aiResponse}</p>
         </div>
       )}
     </div>
   );
 }
 
+// THIS IS THE LINE THAT WENT MISSING
 export default App;

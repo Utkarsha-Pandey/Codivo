@@ -1,52 +1,85 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "READ_PAGE") {
-        try {
-            // 1. Grab the Title (LeetCode almost always puts this in an <h1>)
-            const titleEl = document.querySelector('h1');
-            const title = titleEl ? titleEl.innerText : "Unknown Problem";
-
-            // 2. Grab the main text area (ignoring sidebars and footers)
-            // We look for the common container, or fallback to the whole body
-            const mainContent = document.querySelector('[data-track-load="description_content"]') 
-                                || document.body;
-            const rawText = mainContent.innerText;
-
-            // 3. Parse the structured data using LeetCode's standard formatting
-            let description = rawText;
-            let examples = "None found.";
-            let constraints = "None found.";
-
-            if (rawText.includes("Example 1:")) {
-                const parts = rawText.split("Example 1:");
-                // Everything before Example 1 is the description
-                description = parts[0].replace(title, "").trim(); 
-                
-                const remainingText = parts[1];
-                if (remainingText.includes("Constraints:")) {
-                    const subParts = remainingText.split("Constraints:");
-                    // Everything between Example 1 and Constraints
-                    examples = "Example 1:" + subParts[0].trim();
-                    // Everything after Constraints
-                    constraints = subParts[1].trim();
-                } else {
-                    examples = "Example 1:" + remainingText.trim();
-                }
-            }
-
-            // 4. Package it into a clean JSON object
-            const structuredData = {
-                title: title,
-                description: description.substring, 
-                examples: examples.substring,
-                constraints: constraints.substring
-            };
-
-            // Send the JSON back to React
-            sendResponse({ data: structuredData });
-        } catch (error) {
-            console.error("Scraping failed:", error);
-            sendResponse({ error: "Failed to parse page." });
+        
+        const urlParts = window.location.pathname.split('/');
+        const problemIndex = urlParts.indexOf('problems');
+        
+        if (problemIndex === -1 || !urlParts[problemIndex + 1]) {
+            sendResponse({ error: "Not a valid LeetCode problem page." });
+            return true;
         }
+
+        const titleSlug = urlParts[problemIndex + 1];
+
+        const query = `
+            query questionData($titleSlug: String!) {
+              question(titleSlug: $titleSlug) {
+                title
+                content
+              }
+            }
+        `;
+
+        fetch('https://leetcode.com/graphql', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                operationName: "questionData",
+                variables: { titleSlug: titleSlug },
+                query: query
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data && data.data && data.data.question) {
+                const question = data.data.question;
+                
+                const tempDiv = document.createElement("div");
+                tempDiv.innerHTML = question.content;
+                const cleanText = tempDiv.innerText || tempDiv.textContent || "";
+
+                // --- NEW PARSING LOGIC ---
+                let descriptionText = cleanText;
+                let examplesText = "None found.";
+                let constraintsText = "None found.";
+
+                // Find indices of standard LeetCode headers
+                const exampleIndex = cleanText.indexOf("Example 1:");
+                const constraintsIndex = cleanText.indexOf("Constraints:");
+
+                if (exampleIndex !== -1) {
+                    descriptionText = cleanText.substring(0, exampleIndex).trim();
+                    if (constraintsIndex !== -1) {
+                        examplesText = cleanText.substring(exampleIndex, constraintsIndex).trim();
+                        constraintsText = cleanText.substring(constraintsIndex).trim();
+                    } else {
+                        examplesText = cleanText.substring(exampleIndex).trim();
+                    }
+                } else if (constraintsIndex !== -1) {
+                    descriptionText = cleanText.substring(0, constraintsIndex).trim();
+                    constraintsText = cleanText.substring(constraintsIndex).trim();
+                }
+                // -------------------------
+
+                sendResponse({
+                    data: {
+                        title: question.title,
+                        description: descriptionText.substring(0, 1500), 
+                        examples: examplesText.substring(0, 1500), 
+                        constraints: constraintsText.substring(0, 500) 
+                    }
+                });
+            } else {
+                throw new Error("Invalid GraphQL response");
+            }
+        })
+        .catch(error => {
+            console.error("GraphQL Fetch failed:", error);
+            sendResponse({ error: "Failed to fetch problem data from API." });
+        });
+
+        return true; 
     }
-    return true; 
 });
