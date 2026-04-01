@@ -7,42 +7,47 @@ function App() {
 
   const handleStartInterview = async () => {
     setStatus("Scanning problem...");
-    setAiResponse(""); // Clear previous answers
+    setAiResponse(""); 
     
-    // 1. Ask Chrome which tab we are currently looking at
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-    // 2. Inject our content.js reader into that tab
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: ['content.js']
     }, () => {
       
-      // 3. Send a message to content.js asking for the data
-      chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
-        
-        // Handle explicit errors returned from our new content.js
-        if (response && response.error) {
-          setStatus(`Error: ${response.error}`);
-          return;
-        }
-
-        if (response && response.data) {
-          setStatus(`Sending "${response.data.title}" to AI...`);
+      // The 200ms delay to prevent the race condition
+      setTimeout(() => {
+        chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
           
-          try {
-            // 4. Send the JSON object to FastAPI
-            const answer = await startInterview(response.data);
-            setAiResponse(answer);
-            setStatus("Interview Started!");
-          } catch (error) {
-            console.error(error);
-            setStatus("Error connecting to backend.");
+          if (chrome.runtime.lastError) {
+             console.error("Chrome Runtime Error:", chrome.runtime.lastError.message);
+             setStatus("Error: Could not connect to the page. Try refreshing.");
+             return;
           }
-        } else {
-          setStatus("Could not fetch problem data.");
-        }
-      });
+
+          if (response && response.error) {
+            setStatus(`Error: ${response.error}`);
+            return;
+          }
+
+          if (response && response.data) {
+            setStatus(`Sending "${response.data.title}" to AI...`);
+            
+            try {
+              const answer = await startInterview(response.data);
+              setAiResponse(answer);
+              setStatus("Interview Started!");
+            } catch (error) {
+              console.error(error);
+              setStatus("Error connecting to backend.");
+            }
+          } else {
+            setStatus("Could not fetch problem data.");
+          }
+        });
+      }, 200); 
+      
     });
   };
 
@@ -68,4 +73,5 @@ function App() {
   );
 }
 
+// THIS IS THE LINE THAT WENT MISSING
 export default App;

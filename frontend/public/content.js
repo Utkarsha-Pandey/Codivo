@@ -1,8 +1,6 @@
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "READ_PAGE") {
         
-        // 1. Extract the problem slug from the LeetCode URL
-        // Example URL: https://leetcode.com/problems/two-sum/description/
         const urlParts = window.location.pathname.split('/');
         const problemIndex = urlParts.indexOf('problems');
         
@@ -11,9 +9,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             return true;
         }
 
-        const titleSlug = urlParts[problemIndex + 1]; // e.g., "two-sum"
+        const titleSlug = urlParts[problemIndex + 1];
 
-        // 2. Define the exact GraphQL query LeetCode uses to fetch problem details
         const query = `
             query questionData($titleSlug: String!) {
               question(titleSlug: $titleSlug) {
@@ -23,7 +20,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
         `;
 
-        // 3. Make the fetch request directly to LeetCode's GraphQL endpoint
         fetch('https://leetcode.com/graphql', {
             method: 'POST',
             headers: {
@@ -40,19 +36,39 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (data && data.data && data.data.question) {
                 const question = data.data.question;
                 
-                // LeetCode returns the content as a single block of raw HTML string.
-                // We can strip the HTML tags to send clean text to your AI.
                 const tempDiv = document.createElement("div");
                 tempDiv.innerHTML = question.content;
                 const cleanText = tempDiv.innerText || tempDiv.textContent || "";
 
-                // Send the perfectly formatted data back to App.jsx
+                // --- NEW PARSING LOGIC ---
+                let descriptionText = cleanText;
+                let examplesText = "None found.";
+                let constraintsText = "None found.";
+
+                // Find indices of standard LeetCode headers
+                const exampleIndex = cleanText.indexOf("Example 1:");
+                const constraintsIndex = cleanText.indexOf("Constraints:");
+
+                if (exampleIndex !== -1) {
+                    descriptionText = cleanText.substring(0, exampleIndex).trim();
+                    if (constraintsIndex !== -1) {
+                        examplesText = cleanText.substring(exampleIndex, constraintsIndex).trim();
+                        constraintsText = cleanText.substring(constraintsIndex).trim();
+                    } else {
+                        examplesText = cleanText.substring(exampleIndex).trim();
+                    }
+                } else if (constraintsIndex !== -1) {
+                    descriptionText = cleanText.substring(0, constraintsIndex).trim();
+                    constraintsText = cleanText.substring(constraintsIndex).trim();
+                }
+                // -------------------------
+
                 sendResponse({
                     data: {
                         title: question.title,
-                        description: cleanText.substring(0, 1000), // AI context limit safety
-                        examples: "Included in description.", // LeetCode bundles examples in the content
-                        constraints: "Included in description." // LeetCode bundles constraints in the content
+                        description: descriptionText.substring(0, 1500), 
+                        examples: examplesText.substring(0, 1500), 
+                        constraints: constraintsText.substring(0, 500) 
                     }
                 });
             } else {
@@ -64,7 +80,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             sendResponse({ error: "Failed to fetch problem data from API." });
         });
 
-        // Return true to indicate we will send the response asynchronously
         return true; 
     }
 });
