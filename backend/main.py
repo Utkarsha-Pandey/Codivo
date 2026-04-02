@@ -30,6 +30,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- NEW: Temporary in-memory database for session state ---
+sessions_db = {}
+# -----------------------------------------------------------
+
 @app.get("/")
 def read_root():
     return {"message": "Server is running"}
@@ -65,9 +69,9 @@ async def start_interview(problem: ProblemContext):
     Receives the scraped problem data from the Chrome extension, 
     initializes the LangGraph state, and gets the first response.
     """
+    # For now, we use a hardcoded session ID. 
+    session_id = "test_session_123"
     
-    # We construct a hidden initial message that contains the scraped problem details.
-    # The agent will read this and respond by introducing the problem.
     hidden_prompt = f"""
     I am the candidate. Let's start the interview for the following problem:
     
@@ -91,32 +95,48 @@ async def start_interview(problem: ProblemContext):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start interview: {str(e)}")
     
+    # --- NEW: Save the generated state to our in-memory DB ---
+    sessions_db[session_id] = {
+        "messages": result["messages"],
+        "current_stage": result["current_stage"],
+        "candidate_code": result.get("candidate_code", "")
+    }
+    # ---------------------------------------------------------
+    
     # Extract the AI's response
     ai_response = result["messages"][-1].content
     
-    # Notice we are returning "ai_answer" to match what your api.js expects: return data.ai_answer;
     return {"ai_answer": ai_response, "stage": result["current_stage"]} 
 
 @app.post("/chat")
-async def chat_endpoint(user_message: str, session_id: str):
-    # You would typically fetch the existing state/messages from your PostgreSQL DB here
+async def chat_endpoint(user_message: str, session_id: str = "test_session_123"):
     
-    initial_state = {
-        "messages": [HumanMessage(content=user_message)],
-        "current_stage": "problem_intro", # Default or fetched from DB
-        "candidate_code": ""
-    }
+    # --- NEW: Retrieve the existing conversation history ---
+    if session_id not in sessions_db:
+         raise HTTPException(status_code=400, detail="Session not found. Please click 'Scan Problem & Start' first.")
     
-    # Run the graph
+    current_state = sessions_db[session_id]
+    # -------------------------------------------------------
+    
+    # Append the user's new message to the history
+    current_state["messages"].append(HumanMessage(content=user_message))
+    
+    # Run the graph with the FULL history
     try:
-        result = interview_app.invoke(initial_state)
+        result = interview_app.invoke(current_state)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat workflow failed: {str(e)}")
     
+    #  Update the database with the AI's new response ---
+    sessions_db[session_id] = {
+        "messages": result["messages"],
+        "current_stage": result["current_stage"],
+        "candidate_code": result.get("candidate_code", "")
+    }
+    # -----------------------------------------------------------
+    
     # Extract the AI's response
     ai_response = result["messages"][-1].content
-    
-    # Save the updated state/messages back to your database here
     
     return {"response": ai_response, "stage": result["current_stage"]}
 
