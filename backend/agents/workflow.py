@@ -1,9 +1,26 @@
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 from .state import InterviewState
 from .nodes import ProblemDefinitionAgent, ThoughtEvaluatorAgent, CodingGuideAgent
 import os
+
+# --- NEW: The Front Door Router ---
+def determine_start_node(state: InterviewState) -> str:
+    """
+    Reads the current_stage from the database injection 
+    and starts the graph at the correct agent.
+    """
+    stage = state.get("current_stage", "problem_intro")
+    
+    if stage == "evaluating_thought":
+        return "thought_evaluator"
+    elif stage == "coding":
+        return "coding_agent"
+    
+    # Default fallback
+    return "problem_agent"
+# ----------------------------------
 
 def route_interview(state: InterviewState) -> str:
     last_human_message = next(
@@ -17,14 +34,12 @@ def route_interview(state: InterviewState) -> str:
     
     # 1. From Intro -> Evaluation
     if state["current_stage"] == "problem_intro":
-        # If they start discussing their approach or say they are ready
         if any(word in last_human_message for word in ["approach", "think", "solve", "ready"]):
             return "thought_evaluator"
         return END
         
     # 2. From Evaluation -> Coding
     elif state["current_stage"] == "evaluating_thought":
-        # If they have refined their approach and are ready to type
         if "code" in last_human_message or "ready" in last_human_message:
             return "coding_agent"
         return END
@@ -40,21 +55,20 @@ def route_interview(state: InterviewState) -> str:
 def build_interview_graph():
     llm = ChatGroq(api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
     
-    # Initialize all three agents
     problem_agent = ProblemDefinitionAgent(llm)
     thought_evaluator = ThoughtEvaluatorAgent(llm)
     coding_agent = CodingGuideAgent(llm)
     
     workflow = StateGraph(InterviewState)
     
-    # Add nodes
     workflow.add_node("problem_agent", problem_agent)
     workflow.add_node("thought_evaluator", thought_evaluator)
     workflow.add_node("coding_agent", coding_agent)
     
-    workflow.set_entry_point("problem_agent")
+    # conditional edge from START 
+    workflow.add_conditional_edges(START, determine_start_node)
+    # -----------------------------------------------------------------------------------------
     
-    # Add conditional edges to route between stages based on candidate input
     workflow.add_conditional_edges("problem_agent", route_interview)
     workflow.add_conditional_edges("thought_evaluator", route_interview)
     workflow.add_conditional_edges("coding_agent", route_interview)
