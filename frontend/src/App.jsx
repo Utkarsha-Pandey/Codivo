@@ -14,15 +14,38 @@ function App() {
 
   const chatEndRef = useRef(null);
 
-  // Auto scroll chat
+  // Audio State Management
+  const [playingIndex, setPlayingIndex] = useState(null);
+  const [isPaused, setIsPaused] = useState(false);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // --- Mac-Optimized Text-to-Speech ---
-  const playAudio = (text) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+  // --- Advanced Audio Controller (Message Level) ---
+  const triggerAudio = (text, index, action = 'play') => {
+    if (!('speechSynthesis' in window)) {
+      console.warn("Text-to-speech is not supported.");
+      return;
+    }
+
+    if (action === 'toggle') {
+      if (playingIndex === index) {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          setIsPaused(false);
+        } else {
+          window.speechSynthesis.pause();
+          setIsPaused(true);
+        }
+        return;
+      } else {
+        action = 'play'; 
+      }
+    }
+
+    if (action === 'replay' || action === 'play') {
+      window.speechSynthesis.cancel(); 
       
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 1.05; 
@@ -40,34 +63,56 @@ function App() {
       if (!selectedVoice) {
         selectedVoice = voices.find(voice => voice.lang === 'en-US') || voices[0];
       }
-      
       if (selectedVoice) {
         utterance.voice = selectedVoice;
       }
 
+      utterance.onstart = () => { setPlayingIndex(index); setIsPaused(false); };
+      utterance.onend = () => { setPlayingIndex(null); setIsPaused(false); };
+      utterance.onerror = () => { setPlayingIndex(null); setIsPaused(false); };
+      
       window.speechSynthesis.speak(utterance);
-    } else {
-      console.warn("Text-to-speech is not supported.");
     }
   };
-  // -----------------------------------------
+  // ------------------------------------
+
+  // --- Reset Interview Function (App Level) ---
+  const handleRestart = () => {
+    const confirmRestart = window.confirm("Start over? Your current progress will be lost.");
+    
+    if (confirmRestart) {
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      setPlayingIndex(null);
+      setIsPaused(false);
+
+      if (isRecording && mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+
+      setMessages([]);
+      setUserInput("");
+      setIsInterviewActive(false);
+      setStatus("Ready");
+    }
+  };
+  // --------------------------------------------
 
   const openMicSetupPage = async () => {
     const optionsUrl = chrome.runtime.getURL('options.html');
-
     try {
       if (chrome.runtime.openOptionsPage) {
         await chrome.runtime.openOptionsPage();
         return;
       }
     } catch (error) {
-      console.warn("Failed to open extension options page:", error);
+      console.warn("Failed to open options page:", error);
     }
-
     window.open(optionsUrl, '_blank', 'noopener,noreferrer');
   };
 
-  // 🎤 Toggle voice input (MediaRecorder -> FastAPI Whisper)
   const toggleRecording = async () => {
     if (isRecording) {
       if (mediaRecorderRef.current) {
@@ -88,7 +133,7 @@ function App() {
         };
 
         mediaRecorder.onstop = async () => {
-          setStatus("Transcribing with Groq...");
+          setStatus("Transcribing...");
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           
           try {
@@ -97,7 +142,7 @@ function App() {
             setStatus("Interview Active");
           } catch (error) {
             console.error("Transcription failed:", error);
-            setStatus("Transcription error. Try again.");
+            setStatus("Transcription error.");
           }
 
           stream.getTracks().forEach(track => track.stop());
@@ -108,7 +153,7 @@ function App() {
         setStatus("Recording...");
 
       } catch (err) {
-        console.warn("Mic permission missing. Opening setup page...");
+        console.warn("Mic permission missing...");
         setStatus("Opening mic setup...");
         await openMicSetupPage();
       }
@@ -129,15 +174,11 @@ function App() {
       setTimeout(() => {
         chrome.tabs.sendMessage(tab.id, { action: "READ_PAGE" }, async (response) => {
           if (chrome.runtime.lastError) {
-            setStatus("Error: Refresh page.");
-            return;
+            setStatus("Error: Refresh page."); return;
           }
-
           if (response?.error) {
-            setStatus(response.error);
-            return;
+            setStatus(response.error); return;
           }
-
           if (response?.data) {
             setStatus("Starting AI...");
             try {
@@ -148,8 +189,6 @@ function App() {
             } catch (error) {
               setStatus("Backend Error");
             }
-          } else {
-            setStatus("Problem data not found.");
           }
         });
       }, 200);
@@ -160,7 +199,6 @@ function App() {
     if (!userInput.trim()) return;
 
     const userText = userInput.trim();
-
     setMessages(prev => [...prev, { sender: "user", text: userText }]);
     setUserInput("");
     setStatus("Thinking...");
@@ -178,7 +216,24 @@ function App() {
     <div className="app-container">
       <header className="header">
         <h1 className="header-title">AI Interviewer</h1>
-        <span className="status-badge">{status}</span>
+        
+        <div className="header-actions">
+          <span className="status-badge">{status}</span>
+          
+          {/* --- Global Restart Button --- */}
+          {isInterviewActive && (
+            <button 
+              onClick={handleRestart}
+              className="restart-btn"
+              title="Start Over"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                <path d="M3 3v5h5"></path>
+              </svg>
+            </button>
+          )}
+        </div>
       </header>
 
       {!isInterviewActive ? (
@@ -195,22 +250,50 @@ function App() {
         <div className="chat-container">
           {messages.map((msg, idx) => (
             <div key={idx} className={`message ${msg.sender}`}>
-              {/* Message Text */}
               <div className="message-content">{msg.text}</div>
               
-              {/* 🔊 Play Audio Button for AI Messages */}
               {msg.sender === "ai" && (
-                <button 
-                  className="play-audio-btn" 
-                  onClick={() => playAudio(msg.text)}
-                  title="Listen to response"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-                  </svg>
-                </button>
+                <div className="audio-controls">
+                  
+                  {/* --- Replay Button (Inline) --- */}
+                  {playingIndex === idx && (
+                    <button 
+                      className="audio-btn" 
+                      onClick={() => triggerAudio(msg.text, idx, 'replay')}
+                      title="Start message over"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+                        <path d="M3 3v5h5"></path>
+                      </svg>
+                    </button>
+                  )}
+
+                  {/* --- Play / Pause Toggle Button (Inline) --- */}
+                  <button 
+                    className="audio-btn" 
+                    onClick={() => triggerAudio(msg.text, idx, 'toggle')}
+                    title={playingIndex === idx && !isPaused ? "Pause" : "Play"}
+                  >
+                    {playingIndex === idx && !isPaused ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="6" y="4" width="4" height="16"></rect>
+                        <rect x="14" y="4" width="4" height="16"></rect>
+                      </svg>
+                    ) : playingIndex === idx && isPaused ? (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                      </svg>
+                    ) : (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                        <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                        <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                      </svg>
+                    )}
+                  </button>
+
+                </div>
               )}
             </div>
           ))}
@@ -220,7 +303,6 @@ function App() {
 
       {isInterviewActive && (
         <div className="input-area">
-          {/* 🎤 Mic Button */}
           <button 
             className={`mic-btn ${isRecording ? 'listening' : ''}`}
             onClick={toggleRecording}
