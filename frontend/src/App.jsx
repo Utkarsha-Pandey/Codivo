@@ -8,7 +8,6 @@ function App() {
   const [userInput, setUserInput] = useState("");
   const [isInterviewActive, setIsInterviewActive] = useState(false);
   
-  // 🎤 FAANG-Grade Voice Recording State
   const [isRecording, setIsRecording] = useState(false);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -19,6 +18,39 @@ function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // --- Mac-Optimized Text-to-Speech ---
+  const playAudio = (text) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = 1.05; 
+      utterance.pitch = 0.9; 
+      
+      const voices = window.speechSynthesis.getVoices();
+      const preferredVoices = ['Samantha', 'Alex', 'Daniel', 'Karen'];
+      let selectedVoice = null;
+
+      for (let name of preferredVoices) {
+        selectedVoice = voices.find(v => v.name.includes(name));
+        if (selectedVoice) break;
+      }
+      
+      if (!selectedVoice) {
+        selectedVoice = voices.find(voice => voice.lang === 'en-US') || voices[0];
+      }
+      
+      if (selectedVoice) {
+        utterance.voice = selectedVoice;
+      }
+
+      window.speechSynthesis.speak(utterance);
+    } else {
+      console.warn("Text-to-speech is not supported.");
+    }
+  };
+  // -----------------------------------------
 
   const openMicSetupPage = async () => {
     const optionsUrl = chrome.runtime.getURL('options.html');
@@ -38,13 +70,11 @@ function App() {
   // 🎤 Toggle voice input (MediaRecorder -> FastAPI Whisper)
   const toggleRecording = async () => {
     if (isRecording) {
-      // STOP RECORDING
       if (mediaRecorderRef.current) {
         mediaRecorderRef.current.stop();
         setIsRecording(false);
       }
     } else {
-      // START RECORDING
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const mediaRecorder = new MediaRecorder(stream);
@@ -62,9 +92,7 @@ function App() {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
           
           try {
-            // Send the blob to FastAPI -> Groq Whisper
             const text = await transcribeAudio(audioBlob);
-            // Append transcribed text to the input box cleanly
             setUserInput(prev => prev + (prev ? " " : "") + text);
             setStatus("Interview Active");
           } catch (error) {
@@ -72,7 +100,6 @@ function App() {
             setStatus("Transcription error. Try again.");
           }
 
-          // Release the microphone
           stream.getTracks().forEach(track => track.stop());
         };
 
@@ -168,7 +195,23 @@ function App() {
         <div className="chat-container">
           {messages.map((msg, idx) => (
             <div key={idx} className={`message ${msg.sender}`}>
-              {msg.text}
+              {/* Message Text */}
+              <div className="message-content">{msg.text}</div>
+              
+              {/* 🔊 Play Audio Button for AI Messages */}
+              {msg.sender === "ai" && (
+                <button 
+                  className="play-audio-btn" 
+                  onClick={() => playAudio(msg.text)}
+                  title="Listen to response"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                  </svg>
+                </button>
+              )}
             </div>
           ))}
           <div ref={chatEndRef} />
