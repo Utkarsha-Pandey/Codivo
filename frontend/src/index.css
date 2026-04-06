@@ -1,4 +1,4 @@
-\:root {
+:root {
   /* Light Mode Colors */
   --bg-primary: #ffffff;
   --bg-secondary: #f4f4f5;
@@ -52,7 +52,7 @@ body {
   width: 100vw;
 }
 
-/* --- Header & Restart Button Styles --- */
+/* --- Header & Action Styles --- */
 .header {
   padding: 16px;
   border-bottom: 1px solid var(--border);
@@ -99,7 +99,6 @@ body {
   background-color: var(--border);
   color: #ef4444; 
 }
-/* -------------------------------------- */
 
 .chat-container {
   flex: 1;
@@ -141,7 +140,7 @@ body {
   background-color: var(--ai-bubble);
   color: var(--ai-text);
   border-bottom-left-radius: 4px;
-  padding-bottom: 32px; /* Make room for the bottom audio controls */
+  padding-bottom: 32px; 
 }
 
 .audio-controls {
@@ -149,6 +148,7 @@ body {
   right: 8px;
   bottom: 6px;
   display: flex;
+  align-items: center;
   gap: 4px;
 }
 
@@ -169,7 +169,28 @@ body {
   background-color: rgba(0, 0, 0, 0.05);
   color: var(--text-primary, #111827);
 }
-/* ----------------------------------------------- */
+
+/* --- Inline Speed Selector --- */
+.audio-speed-select {
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s;
+  appearance: none; 
+  text-align: center;
+}
+
+.audio-speed-select:hover, .audio-speed-select:focus {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary, #111827);
+}
+/* --------------------------------- */
 
 .input-area {
   padding: 16px;

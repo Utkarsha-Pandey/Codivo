@@ -17,13 +17,14 @@ function App() {
   // Audio State Management
   const [playingIndex, setPlayingIndex] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [playbackRate, setPlaybackRate] = useState(1);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // --- Advanced Audio Controller (Message Level) ---
-  const triggerAudio = (text, index, action = 'play') => {
+  // --- Advanced Audio Controller (Now supports instant speed override) ---
+  const triggerAudio = (text, index, action = 'play', overrideRate = null) => {
     if (!('speechSynthesis' in window)) {
       console.warn("Text-to-speech is not supported.");
       return;
@@ -48,7 +49,9 @@ function App() {
       window.speechSynthesis.cancel(); 
       
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.rate = 1.05; 
+      
+      // Use the override speed if we just changed the dropdown, otherwise use state
+      utterance.rate = overrideRate !== null ? overrideRate : playbackRate; 
       utterance.pitch = 0.9; 
       
       const voices = window.speechSynthesis.getVoices();
@@ -76,7 +79,6 @@ function App() {
   };
   // ------------------------------------
 
-  // --- Reset Interview Function (App Level) ---
   const handleRestart = () => {
     const confirmRestart = window.confirm("Start over? Your current progress will be lost.");
     
@@ -98,7 +100,6 @@ function App() {
       setStatus("Ready");
     }
   };
-  // --------------------------------------------
 
   const openMicSetupPage = async () => {
     const optionsUrl = chrome.runtime.getURL('options.html');
@@ -220,7 +221,6 @@ function App() {
         <div className="header-actions">
           <span className="status-badge">{status}</span>
           
-          {/* --- Global Restart Button --- */}
           {isInterviewActive && (
             <button 
               onClick={handleRestart}
@@ -255,7 +255,30 @@ function App() {
               {msg.sender === "ai" && (
                 <div className="audio-controls">
                   
-                  {/* --- Replay Button (Inline) --- */}
+                  {/* --- Inline Speed Selector --- */}
+                  <select 
+                    className="audio-speed-select"
+                    value={playbackRate}
+                    onChange={(e) => {
+                      const newRate = parseFloat(e.target.value);
+                      setPlaybackRate(newRate);
+                      
+                      // If changing speed while THIS message is actively playing, restart it instantly
+                      if (playingIndex === idx && !isPaused) {
+                        triggerAudio(msg.text, idx, 'replay', newRate);
+                      }
+                    }}
+                    title="Playback Speed"
+                  >
+                    <option value="0.5">0.5x</option>
+                    <option value="0.75">0.75x</option>
+                    <option value="1">1x</option>
+                    <option value="1.25">1.25x</option>
+                    <option value="1.5">1.5x</option>
+                    <option value="2">2x</option>
+                  </select>
+                  {/* ---------------------------------- */}
+
                   {playingIndex === idx && (
                     <button 
                       className="audio-btn" 
@@ -269,7 +292,6 @@ function App() {
                     </button>
                   )}
 
-                  {/* --- Play / Pause Toggle Button (Inline) --- */}
                   <button 
                     className="audio-btn" 
                     onClick={() => triggerAudio(msg.text, idx, 'toggle')}
