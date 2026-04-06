@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -10,15 +11,15 @@ if str(ROOT_DIR) not in sys.path:
 
 load_dotenv(BACKEND_DIR / ".env")
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 import uvicorn
 from database import get_db
-from models import UserCredentials
+from models import UserCredentials, ProblemContext
 from supabase import Client
 from fastapi.middleware.cors import CORSMiddleware
-from models import UserCredentials, ProblemContext
 from backend.agents.workflow import interview_app
 from langchain_core.messages import HumanMessage
+from groq import Groq
 
 app = FastAPI(title="AI Interviewer API")
 
@@ -30,7 +31,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- NEW: Temporary in-memory database for session state ---
+# --- NEW: Initialize the Groq client ---
+# It will automatically pick up GROQ_API_KEY from your .env file
+groq_client = Groq()
+# ---------------------------------------
+
+# --- Temporary in-memory database for session state ---
 sessions_db = {}
 # -----------------------------------------------------------
 
@@ -95,13 +101,12 @@ async def start_interview(problem: ProblemContext):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start interview: {str(e)}")
     
-    # --- NEW: Save the generated state to our in-memory DB ---
+    # Save the generated state to our in-memory DB
     sessions_db[session_id] = {
         "messages": result["messages"],
         "current_stage": result["current_stage"],
         "candidate_code": result.get("candidate_code", "")
     }
-    # ---------------------------------------------------------
     
     # Extract the AI's response
     ai_response = result["messages"][-1].content
@@ -111,12 +116,11 @@ async def start_interview(problem: ProblemContext):
 @app.post("/chat")
 async def chat_endpoint(user_message: str, session_id: str = "test_session_123"):
     
-    # --- NEW: Retrieve the existing conversation history ---
+    # Retrieve the existing conversation history
     if session_id not in sessions_db:
          raise HTTPException(status_code=400, detail="Session not found. Please click 'Scan Problem & Start' first.")
     
     current_state = sessions_db[session_id]
-    # -------------------------------------------------------
     
     # Append the user's new message to the history
     current_state["messages"].append(HumanMessage(content=user_message))
@@ -127,18 +131,49 @@ async def chat_endpoint(user_message: str, session_id: str = "test_session_123")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Chat workflow failed: {str(e)}")
     
-    #  Update the database with the AI's new response ---
+    # Update the database with the AI's new response
     sessions_db[session_id] = {
         "messages": result["messages"],
         "current_stage": result["current_stage"],
         "candidate_code": result.get("candidate_code", "")
     }
-    # -----------------------------------------------------------
     
     # Extract the AI's response
     ai_response = result["messages"][-1].content
     
     return {"response": ai_response, "stage": result["current_stage"]}
+
+# ---  Audio Transcription Endpoint ---
+@app.post("/transcribe")
+async def transcribe_audio(file: UploadFile = File(...)):
+    """
+    Receives a raw audio blob from the frontend, 
+    saves it temporarily, and sends it to Groq Whisper for transcription.
+    """
+    try:
+        # Create a temporary file to hold the audio blob
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+            temp_audio.write(await file.read())
+            temp_filepath = temp_audio.name
+
+        # Send to Groq Whisper
+        with open(temp_filepath, "rb") as audio_file:
+            transcription = groq_client.audio.transcriptions.create(
+                file=(temp_filepath, audio_file.read()),
+                model="whisper-large-v3",
+                response_format="json",
+            )
+            
+        # Clean up the temp file
+        os.remove(temp_filepath)
+        
+        # Return the clean text
+        return {"text": transcription.text}
+
+    except Exception as e:
+        print(f"Transcription error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to transcribe audio")
+# -----------------------------------------
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)

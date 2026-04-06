@@ -163,3 +163,33 @@ body {
   text-align: center;
   padding: 20px;
 }
+/* --- Microphone Button Styles --- */
+.mic-btn {
+  padding: 10px 14px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mic-btn:hover {
+  background-color: var(--border);
+}
+
+.mic-btn.listening {
+  background-color: #ef4444; /* Red for recording */
+  color: white;
+  border-color: #dc2626;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { transform: scale(1.05); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
